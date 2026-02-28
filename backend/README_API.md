@@ -2,7 +2,7 @@
 
 ## Stack
 - Laravel 12 API
-- MySQL
+- MySQL (production) or SQLite (local fallback)
 - Sanctum token auth
 - Role middleware (`check.role`)
 - Service layer + Form Requests
@@ -13,7 +13,11 @@
    - `composer install`
    - `copy .env.example .env`
    - `php artisan key:generate`
-   - `php artisan migrate --seed`
+  - Set database in `.env`:
+    - MySQL: set `DB_CONNECTION=mysql` and your DB credentials
+    - SQLite fallback: set `DB_CONNECTION=sqlite` and `DB_DATABASE=database/database.sqlite`
+  - If using SQLite, create file: `database/database.sqlite`
+  - `php artisan migrate:fresh --seed`
    - `php artisan serve`
 3. API base URL: `http://127.0.0.1:8000/api`
 
@@ -87,6 +91,8 @@
 - Logged into wrong role page (student login only allows student role).
 - Saving to one SQLite file while app reads another file path.
 - Validation error from API (check Network tab response body).
+- `could not find driver` on login/migrate:
+  - enable `pdo_mysql` for MySQL, or switch to SQLite in `.env`.
 
 ## cPanel Production Setup
 1. Create subdomain (example: `api.yourdomain.com`) in cPanel.
