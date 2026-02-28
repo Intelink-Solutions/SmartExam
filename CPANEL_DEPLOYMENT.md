@@ -1,5 +1,16 @@
 # cPanel Deployment (Frontend + Backend)
 
+## Local setup checklist (before deploy)
+- Backend runs locally on `http://127.0.0.1:8000`.
+- Frontend runs locally on `http://localhost:5173`.
+- Frontend API URL points to `http://127.0.0.1:8000/api` in `.env.local`.
+- Database is migrated and seeded (`php artisan migrate:fresh --seed` or `php artisan migrate --seed`).
+- You can log in with a seeded account.
+
+See full local setup guides:
+- Root guide: [README.md](README.md)
+- Backend API guide: [backend/README_API.md](backend/README_API.md)
+
 ## Target setup
 - Frontend: `https://yourdomain.com`
 - Backend API: `https://api.yourdomain.com`
