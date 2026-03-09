@@ -34,7 +34,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('questions', QuestionController::class)->middleware('check.role:super_admin,admin,teacher');
     Route::post('questions/import', [QuestionController::class, 'bulkImport'])->middleware('check.role:super_admin,admin,teacher');
 
-    Route::apiResource('exams', ExamController::class)->middleware('check.role:super_admin,admin,teacher');
+    Route::get('exams', [ExamController::class, 'index'])->middleware('check.role:super_admin,admin,teacher,student');
+    Route::get('exams/{exam}', [ExamController::class, 'show'])->middleware('check.role:super_admin,admin,teacher');
+    Route::post('exams', [ExamController::class, 'store'])->middleware('check.role:super_admin,admin,teacher');
+    Route::put('exams/{exam}', [ExamController::class, 'update'])->middleware('check.role:super_admin,admin,teacher');
+    Route::patch('exams/{exam}', [ExamController::class, 'update'])->middleware('check.role:super_admin,admin,teacher');
+    Route::delete('exams/{exam}', [ExamController::class, 'destroy'])->middleware('check.role:super_admin,admin,teacher');
     Route::post('exams/{exam}/questions', [ExamController::class, 'attachQuestions'])->middleware('check.role:super_admin,admin,teacher');
     Route::post('exams/start', [ExamController::class, 'start'])->middleware('check.role:student');
     Route::post('exams/{exam}/answers', [ExamController::class, 'saveAnswer'])->middleware('check.role:student');

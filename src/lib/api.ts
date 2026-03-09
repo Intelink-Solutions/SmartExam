@@ -290,7 +290,34 @@ export type ApiExam = {
   school_class?: { id: number; name: string };
   subject?: { id: number; name: string };
   term?: { id: number; name: string; academic_year?: { id: number; name: string } };
+  questions_count?: number;
+  student_state?: "available" | "completed" | "upcoming" | "missed" | "in_progress";
   questions?: { id: number }[];
+};
+
+export type ApiExamQuestion = {
+  id: number;
+  subject_id: number;
+  class_id: number;
+  type: ApiQuestionType;
+  question_text: string;
+  marks: number;
+};
+
+export type ApiStudentExamSession = {
+  id: number;
+  student_id: number;
+  exam_id: number;
+  start_time: string;
+  end_time: string;
+  is_submitted: boolean;
+};
+
+export type ApiStudentAnswer = {
+  id: number;
+  question_id: number;
+  answer: string;
+  marks_awarded: number | null;
 };
 
 export type ApiResult = {
@@ -361,6 +388,52 @@ export async function deleteExam(token: string, id: number): Promise<{ message: 
   return apiRequest<{ message: string }>(`/exams/${id}`, {
     method: "DELETE",
     token,
+  });
+}
+
+export async function attachExamQuestions(
+  token: string,
+  examId: number,
+  payload: { question_ids: number[] }
+): Promise<ApiExam> {
+  return apiRequest<ApiExam>(`/exams/${examId}/questions`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function startExam(
+  token: string,
+  payload: { exam_id: number }
+): Promise<{ session: ApiStudentExamSession; exam: ApiExam & { questions: ApiExamQuestion[] }; answers: ApiStudentAnswer[] }> {
+  return apiRequest<{ session: ApiStudentExamSession; exam: ApiExam & { questions: ApiExamQuestion[] }; answers: ApiStudentAnswer[] }>("/exams/start", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function saveExamAnswer(
+  token: string,
+  examId: number,
+  payload: { question_id: number; answer: string }
+): Promise<ApiStudentAnswer> {
+  return apiRequest<ApiStudentAnswer>(`/exams/${examId}/answers`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function submitExam(
+  token: string,
+  payload: { exam_id: number }
+): Promise<{ session: ApiStudentExamSession; objective_total: number; essay_pending: boolean }> {
+  return apiRequest<{ session: ApiStudentExamSession; objective_total: number; essay_pending: boolean }>("/exams/submit", {
+    method: "POST",
+    token,
+    body: payload,
   });
 }
 

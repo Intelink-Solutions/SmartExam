@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/MainLayout";
 import { Monitor, Clock, Play, CheckCircle, Lock, BookOpen, Trophy, BarChart3 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { ApiExam, fetchExams, startExam } from "@/lib/api";
 
 interface StudentExam {
   id: number;
@@ -13,37 +15,76 @@ interface StudentExam {
   status: "Available" | "Completed" | "Upcoming" | "Missed";
   questions: number;
   totalMarks: number;
-  score?: number;
   date: string;
 }
 
-const availableExams: StudentExam[] = [
-  { id: 1, subject: "Mathematics", type: "End of Term", duration: "60 mins", status: "Available", questions: 30, totalMarks: 50, date: "2025-03-15" },
-  { id: 2, subject: "English Language", type: "Mid-Term", duration: "45 mins", status: "Available", questions: 25, totalMarks: 40, date: "2025-03-16" },
-  { id: 3, subject: "Science", type: "End of Term", duration: "60 mins", status: "Completed", questions: 35, totalMarks: 60, score: 48, date: "2025-03-10" },
-  { id: 4, subject: "Social Studies", type: "Quiz", duration: "30 mins", status: "Upcoming", questions: 20, totalMarks: 30, date: "2025-03-25" },
-  { id: 5, subject: "ICT", type: "End of Term", duration: "45 mins", status: "Completed", questions: 20, totalMarks: 40, score: 35, date: "2025-03-08" },
-  { id: 6, subject: "French", type: "Mid-Term", duration: "30 mins", status: "Missed", questions: 15, totalMarks: 25, date: "2025-03-05" },
-];
+const mapExamStatus = (exam: ApiExam): StudentExam["status"] => {
+  if (exam.student_state === "completed") return "Completed";
+  if (exam.student_state === "upcoming") return "Upcoming";
+  if (exam.student_state === "missed") return "Missed";
+  return "Available";
+};
+
+const mapApiExam = (exam: ApiExam): StudentExam => ({
+  id: exam.id,
+  subject: exam.subject?.name || "Subject",
+  type: exam.term?.name || "Exam",
+  duration: `${exam.duration_minutes} mins`,
+  status: mapExamStatus(exam),
+  questions: exam.questions_count || exam.questions?.length || 0,
+  totalMarks: exam.total_marks,
+  date: exam.exam_date?.slice(0, 10) || "",
+});
 
 export default function StudentPortal() {
+  const { token } = useAuth();
   const navigate = useNavigate();
+  const [availableExams, setAvailableExams] = useState<StudentExam[]>([]);
   const [showStartModal, setShowStartModal] = useState<StudentExam | null>(null);
   const [filter, setFilter] = useState<string>("All");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isStarting, setIsStarting] = useState(false);
 
-  const completedExams = availableExams.filter(e => e.status === "Completed");
-  const avgScore = completedExams.length > 0
-    ? Math.round(completedExams.reduce((a, e) => a + ((e.score || 0) / e.totalMarks) * 100, 0) / completedExams.length)
-    : 0;
+  useEffect(() => {
+    const loadExams = async () => {
+      if (!token) return;
+      try {
+        setIsLoading(true);
+        const response = await fetchExams(token);
+        setAvailableExams(response.data.map(mapApiExam));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load exams";
+        toast.error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadExams();
+  }, [token]);
+
+  const completedExams = useMemo(() => availableExams.filter((e) => e.status === "Completed"), [availableExams]);
+  const avgScore = 0;
 
   const handleStartExam = (exam: StudentExam) => {
     setShowStartModal(exam);
   };
 
-  const confirmStart = () => {
-    toast.success(`Starting ${showStartModal?.subject} exam...`);
-    setShowStartModal(null);
-    navigate("/cbt-exam");
+  const confirmStart = async () => {
+    if (!token || !showStartModal) return;
+    try {
+      setIsStarting(true);
+      await startExam(token, { exam_id: showStartModal.id });
+      toast.success(`Starting ${showStartModal.subject} exam...`);
+      const examId = showStartModal.id;
+      setShowStartModal(null);
+      navigate("/cbt-exam", { state: { examId } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to start exam";
+      toast.error(message);
+    } finally {
+      setIsStarting(false);
+    }
   };
 
   const filtered = filter === "All" ? availableExams : availableExams.filter(e => e.status === filter);
@@ -70,8 +111,8 @@ export default function StudentPortal() {
         <div className="absolute top-0 right-0 w-48 h-48 bg-primary-foreground/5 rounded-full -translate-y-1/2 translate-x-1/4" />
         <div className="absolute bottom-0 left-1/2 w-32 h-32 bg-primary-foreground/5 rounded-full translate-y-1/2" />
         <div className="relative z-10">
-          <h1 className="text-2xl font-bold mb-1">Welcome back, Kwame! 👋</h1>
-          <p className="text-primary-foreground/80 text-sm">Class: SHS 1A • Term 1 • 2025/2026 Academic Year</p>
+            <h1 className="text-2xl font-bold mb-1">Welcome back</h1>
+          <p className="text-primary-foreground/80 text-sm">Review and take your available exams.</p>
           <div className="flex gap-4 mt-4">
             <div className="bg-primary-foreground/10 rounded-lg px-4 py-3 backdrop-blur-sm">
               <div className="flex items-center gap-2 mb-1">
@@ -92,7 +133,7 @@ export default function StudentPortal() {
                 <Trophy className="w-3.5 h-3.5 text-primary-foreground/70" />
                 <p className="text-xs text-primary-foreground/70">Pending</p>
               </div>
-              <p className="text-2xl font-bold">{availableExams.filter(e => e.status === "Available").length}</p>
+              <p className="text-2xl font-bold">{availableExams.filter((e) => e.status === "Available").length}</p>
             </div>
           </div>
         </div>
@@ -159,21 +200,6 @@ export default function StudentPortal() {
               </div>
             </div>
 
-            {exam.status === "Completed" && exam.score !== undefined && (
-              <div className="mb-3">
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="text-muted-foreground">Your Score</span>
-                  <span className="font-bold text-foreground">{exam.score}/{exam.totalMarks}</span>
-                </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-secondary rounded-full transition-all"
-                    style={{ width: `${(exam.score / exam.totalMarks) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
             {exam.status === "Available" ? (
               <button
                 onClick={() => handleStartExam(exam)}
@@ -191,7 +217,7 @@ export default function StudentPortal() {
               </button>
             ) : (
               <button
-                onClick={() => toast.info(`Score: ${exam.score}/${exam.totalMarks} (${Math.round(((exam.score || 0) / exam.totalMarks) * 100)}%)`)}
+                onClick={() => toast.info("Result details are available in the results module.")}
                 className="w-full flex items-center justify-center gap-2 py-2.5 bg-secondary/10 text-secondary rounded-lg text-sm font-semibold hover:bg-secondary/20 transition-all"
               >
                 <CheckCircle className="w-4 h-4" /> View Result
@@ -201,9 +227,11 @@ export default function StudentPortal() {
         ))}
       </div>
 
-      {filtered.length === 0 && (
+      {!isLoading && filtered.length === 0 && (
         <div className="text-center py-12 text-muted-foreground text-sm">No exams found for this filter.</div>
       )}
+
+      {isLoading && <div className="text-center py-12 text-muted-foreground text-sm">Loading exams...</div>}
 
       {/* Start Exam Confirmation Modal */}
       <AnimatePresence>
@@ -244,8 +272,8 @@ export default function StudentPortal() {
                 <button onClick={() => setShowStartModal(null)} className="flex-1 py-2.5 rounded-lg border border-input text-sm font-medium text-foreground hover:bg-muted transition-colors">
                   Cancel
                 </button>
-                <button onClick={confirmStart} className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-all">
-                  Start Exam
+                <button disabled={isStarting} onClick={confirmStart} className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-70">
+                  {isStarting ? "Starting..." : "Start Exam"}
                 </button>
               </div>
             </motion.div>

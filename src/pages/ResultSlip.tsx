@@ -1,8 +1,15 @@
+import { useEffect, useMemo, useState } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { Printer, GraduationCap } from "lucide-react";
 import { useLocation } from "react-router-dom";
+import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { fetchClassResults } from "@/lib/api";
 
 type ResultSlipState = {
+  resultId?: number;
+  classId?: number;
+  termId?: number;
   studentName?: string;
   studentId?: number;
   total?: number;
@@ -15,8 +22,57 @@ type ResultSlipState = {
 };
 
 export default function ResultSlip() {
-  const { state } = useLocation();
-  const data = (state as ResultSlipState) || {};
+  const { token } = useAuth();
+  const { state, search } = useLocation();
+
+  const params = useMemo(() => new URLSearchParams(search), [search]);
+  const queryClassId = Number(params.get("classId") || 0);
+  const queryStudentId = Number(params.get("studentId") || 0);
+
+  const initial = ((state as ResultSlipState) || {}) as ResultSlipState;
+  const [data, setData] = useState<ResultSlipState>(initial);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const effectiveClassId = data.classId || queryClassId;
+  const effectiveStudentId = data.studentId || queryStudentId;
+
+  useEffect(() => {
+    const hasStateData = Boolean(data.studentName && data.grade);
+    if (hasStateData) return;
+    if (!token || !effectiveClassId || !effectiveStudentId) return;
+
+    const loadFallback = async () => {
+      try {
+        setIsLoading(true);
+        const results = await fetchClassResults(token, effectiveClassId);
+        const match = results.find((item) => item.student_id === effectiveStudentId);
+
+        if (!match) {
+          toast.error("Result record not found.");
+          return;
+        }
+
+        setData((prev) => ({
+          ...prev,
+          studentId: match.student_id,
+          studentName: match.student?.user?.name || prev.studentName || "Student",
+          total: match.total_marks,
+          average: Number(match.average || 0),
+          grade: match.grade,
+          position: match.position || 0,
+          className: prev.className || match.school_class?.name || "Class",
+          termName: prev.termName || match.term?.name || "Term",
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to load result slip";
+        toast.error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadFallback();
+  }, [token, effectiveClassId, effectiveStudentId, data.studentName, data.grade]);
 
   const studentName = data.studentName || "Student";
   const average = data.average || 0;
@@ -41,7 +97,7 @@ export default function ResultSlip() {
             <div>
               <h1 className="text-xl font-bold text-foreground">SMART EXAM PRO SCHOOL</h1>
               <p className="text-xs text-muted-foreground">{data.className || "Class"}</p>
-              <p className="text-xs font-semibold text-secondary mt-1">TERMINAL REPORT CARD — {data.academicYear || "Academic Year"} • {data.termName || "Term"}</p>
+              <p className="text-xs font-semibold text-secondary mt-1">TERMINAL REPORT CARD - {data.academicYear || "Academic Year"} • {data.termName || "Term"}</p>
             </div>
           </div>
         </div>
@@ -52,7 +108,7 @@ export default function ResultSlip() {
               <div className="w-14 h-14 rounded-lg bg-secondary/20 flex items-center justify-center text-lg font-bold text-secondary">{studentName.charAt(0)}</div>
               <div>
                 <p className="text-xs text-muted-foreground">Student Name</p>
-                <p className="text-sm font-bold text-foreground">{studentName}</p>
+                <p className="text-sm font-bold text-foreground">{isLoading ? "Loading..." : studentName}</p>
               </div>
             </div>
             <div className="space-y-1">

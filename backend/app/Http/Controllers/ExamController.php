@@ -9,6 +9,7 @@ use App\Http\Requests\Exam\StoreExamRequest;
 use App\Http\Requests\Exam\SubmitExamRequest;
 use App\Models\Exam;
 use App\Models\StudentAnswer;
+use App\Models\StudentExamSession;
 use App\Services\ExamService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,8 +23,53 @@ class ExamController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $exams = Exam::with(['schoolClass', 'subject', 'term', 'questions'])
-            ->paginate($request->integer('per_page', 20));
+        $user = $request->user();
+
+        $query = Exam::with(['schoolClass', 'subject', 'term'])
+            ->withCount('questions');
+
+        if ($user?->role === 'student') {
+            $student = $user->student;
+            if (! $student) {
+                return response()->json(['message' => 'Student profile not found'], 403);
+            }
+
+            $query->where('class_id', $student->class_id)
+                ->where('status', 'active');
+
+            $exams = $query->orderBy('exam_date')->paginate($request->integer('per_page', 20));
+
+            $examIds = $exams->getCollection()->pluck('id')->all();
+            $sessions = StudentExamSession::where('student_id', $student->id)
+                ->whereIn('exam_id', $examIds)
+                ->latest('id')
+                ->get()
+                ->groupBy('exam_id');
+
+            $exams->getCollection()->transform(function (Exam $exam) use ($sessions) {
+                $latestSession = $sessions->get($exam->id)?->first();
+
+                $state = 'available';
+                if ($latestSession?->is_submitted) {
+                    $state = 'completed';
+                } elseif ($latestSession && ! $latestSession->is_submitted && now()->lt($latestSession->end_time)) {
+                    $state = 'in_progress';
+                } elseif (now()->lt($exam->exam_date)) {
+                    $state = 'upcoming';
+                } elseif (now()->gt($exam->exam_date)) {
+                    $state = 'missed';
+                }
+
+                $payload = $exam->toArray();
+                $payload['student_state'] = $state;
+
+                return $payload;
+            });
+
+            return response()->json($exams);
+        }
+
+        $exams = $query->paginate($request->integer('per_page', 20));
 
         return response()->json($exams);
     }
@@ -89,9 +135,22 @@ class ExamController extends Controller
 
         $session = $this->examService->startExam($student, $exam);
 
+        // Never expose correct answers during an active student exam session.
+        $examPayload = $exam->toArray();
+        $examPayload['questions'] = collect($examPayload['questions'] ?? [])->map(function (array $question) {
+            unset($question['correct_answer']);
+
+            return $question;
+        })->values()->all();
+
+        $answers = StudentAnswer::where('student_id', $student->id)
+            ->where('exam_id', $exam->id)
+            ->get(['id', 'question_id', 'answer', 'marks_awarded']);
+
         return response()->json([
             'session' => $session,
-            'exam' => $exam,
+            'exam' => $examPayload,
+            'answers' => $answers,
         ]);
     }
 

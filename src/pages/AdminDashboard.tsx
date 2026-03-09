@@ -1,36 +1,146 @@
+import { useEffect, useMemo, useState } from "react";
 import { MainLayout } from "@/components/MainLayout";
 import { motion } from "framer-motion";
 import {
-  Users, GraduationCap, School, BookOpen, ClipboardList, FileText,
-  Plus, UserPlus, ArrowUpRight, ArrowDownRight,
+  Users,
+  GraduationCap,
+  School,
+  BookOpen,
+  ClipboardList,
+  FileText,
+  Plus,
+  UserPlus,
 } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  ApiExam,
+  ApiStudent,
+  fetchClasses,
+  fetchClassResults,
+  fetchExams,
+  fetchStudents,
+  fetchSubjects,
+  fetchTeachers,
+} from "@/lib/api";
 
-const stats = [
-  { label: "Total Students", value: "1,248", icon: Users, change: "+12%", up: true, color: "bg-primary" },
-  { label: "Total Teachers", value: "86", icon: GraduationCap, change: "+3%", up: true, color: "bg-secondary" },
-  { label: "Total Classes", value: "42", icon: School, change: "0%", up: true, color: "bg-success" },
-  { label: "Total Subjects", value: "18", icon: BookOpen, change: "+2", up: true, color: "bg-info" },
-  { label: "Active Exams", value: "7", icon: ClipboardList, change: "-2", up: false, color: "bg-warning" },
-  { label: "Results Generated", value: "3,891", icon: FileText, change: "+145", up: true, color: "bg-chart-5" },
-];
+type DashboardStat = {
+  label: string;
+  value: string;
+  icon: typeof Users;
+  color: string;
+};
 
-const recentActivities = [
-  { action: "Exam Created", detail: "Mathematics - JHS 2", time: "2 mins ago", user: "Mr. Johnson" },
-  { action: "Student Added", detail: "Kwame Asante - SHS 1A", time: "15 mins ago", user: "Admin" },
-  { action: "Results Published", detail: "English - Primary 6", time: "1 hour ago", user: "System" },
-  { action: "Question Added", detail: "Science - 25 questions", time: "2 hours ago", user: "Mrs. Mensah" },
-  { action: "Exam Completed", detail: "Social Studies - JHS 3", time: "3 hours ago", user: "System" },
-];
+type Activity = {
+  action: string;
+  detail: string;
+  time: string;
+  user: string;
+};
+
+const formatRelativeDate = (iso?: string) => {
+  if (!iso) return "recently";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMins = Math.max(1, Math.floor(diffMs / 60000));
+  if (diffMins < 60) return `${diffMins} min ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours} hr ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} day ago`;
+};
 
 export default function AdminDashboard() {
+  const { token } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] = useState<DashboardStat[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+
+  useEffect(() => {
+    const loadDashboard = async () => {
+      if (!token) return;
+
+      try {
+        setIsLoading(true);
+        const [studentsRes, teachersRes, classesRes, subjectsRes, examsRes] = await Promise.all([
+          fetchStudents(token),
+          fetchTeachers(token),
+          fetchClasses(token),
+          fetchSubjects(token),
+          fetchExams(token),
+        ]);
+
+        const activeExams = examsRes.data.filter((exam) => exam.status === "active").length;
+
+        const resultCounts = await Promise.all(
+          classesRes.data.map(async (schoolClass) => {
+            try {
+              const classResults = await fetchClassResults(token, schoolClass.id);
+              return classResults.length;
+            } catch {
+              return 0;
+            }
+          })
+        );
+
+        const totalResults = resultCounts.reduce((sum, count) => sum + count, 0);
+
+        setStats([
+          { label: "Total Students", value: String(studentsRes.total), icon: Users, color: "bg-primary" },
+          { label: "Total Teachers", value: String(teachersRes.total), icon: GraduationCap, color: "bg-secondary" },
+          { label: "Total Classes", value: String(classesRes.total), icon: School, color: "bg-success" },
+          { label: "Total Subjects", value: String(subjectsRes.total), icon: BookOpen, color: "bg-info" },
+          { label: "Active Exams", value: String(activeExams), icon: ClipboardList, color: "bg-warning" },
+          { label: "Results Generated", value: String(totalResults), icon: FileText, color: "bg-chart-5" },
+        ]);
+
+        const recentExams = [...examsRes.data]
+          .sort((a, b) => new Date(b.exam_date).getTime() - new Date(a.exam_date).getTime())
+          .slice(0, 3)
+          .map((exam: ApiExam) => ({
+            action: "Exam Updated",
+            detail: `${exam.subject?.name || "Subject"} - ${exam.school_class?.name || "Class"}`,
+            time: formatRelativeDate(exam.exam_date),
+            user: "System",
+          }));
+
+        const recentStudents = [...studentsRes.data]
+          .slice(0, 2)
+          .map((student: ApiStudent) => ({
+            action: "Student Record",
+            detail: `${student.user.name} - ${student.school_class?.name || "Class"}`,
+            time: "recently",
+            user: "Admin",
+          }));
+
+        setActivities([...recentExams, ...recentStudents]);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load dashboard";
+        toast.error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadDashboard();
+  }, [token]);
+
+  const quickActions = useMemo(
+    () => [
+      { label: "Add New Student", icon: UserPlus, href: "/students" },
+      { label: "Create Exam", icon: ClipboardList, href: "/exams" },
+      { label: "Generate Results", icon: FileText, href: "/results" },
+      { label: "Add Questions", icon: Plus, href: "/questions" },
+    ],
+    []
+  );
+
   return (
     <MainLayout breadcrumbs={[{ label: "Home" }, { label: "Dashboard" }]}>
       <div className="page-header">
         <h1 className="page-title">Dashboard</h1>
-        <p className="page-subtitle">Welcome back! Here's what's happening today.</p>
+        <p className="page-subtitle">Welcome back! Here is what is happening today.</p>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         {stats.map((stat, i) => (
           <motion.div
@@ -44,27 +154,21 @@ export default function AdminDashboard() {
               <div className={`w-9 h-9 rounded-lg ${stat.color} flex items-center justify-center`}>
                 <stat.icon className="w-4 h-4 text-primary-foreground" />
               </div>
-              <span className={`text-xs font-medium flex items-center gap-0.5 ${stat.up ? "text-success" : "text-destructive"}`}>
-                {stat.up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                {stat.change}
-              </span>
             </div>
-            <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+            <p className="text-2xl font-bold text-foreground">{isLoading ? "..." : stat.value}</p>
             <p className="text-xs text-muted-foreground mt-1">{stat.label}</p>
           </motion.div>
         ))}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Recent Activities */}
         <div className="lg:col-span-2 bg-card rounded-lg" style={{ boxShadow: "var(--shadow-card)" }}>
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">Recent Activities</h2>
-            <button className="text-xs text-secondary hover:underline">View All</button>
           </div>
           <div className="divide-y divide-border">
-            {recentActivities.map((activity, i) => (
-              <div key={i} className="px-5 py-3 flex items-center justify-between hover:bg-muted/50 transition-colors">
+            {activities.map((activity, i) => (
+              <div key={`${activity.action}-${i}`} className="px-5 py-3 flex items-center justify-between hover:bg-muted/50 transition-colors">
                 <div>
                   <p className="text-sm font-medium text-foreground">{activity.action}</p>
                   <p className="text-xs text-muted-foreground">{activity.detail}</p>
@@ -75,22 +179,19 @@ export default function AdminDashboard() {
                 </div>
               </div>
             ))}
+            {!isLoading && activities.length === 0 && (
+              <div className="px-5 py-6 text-sm text-muted-foreground">No recent activity available.</div>
+            )}
           </div>
         </div>
 
-        {/* Quick Actions */}
         <div className="bg-card rounded-lg" style={{ boxShadow: "var(--shadow-card)" }}>
           <div className="px-5 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-foreground">Quick Actions</h2>
           </div>
           <div className="p-4 space-y-2">
-            {[
-              { label: "Add New Student", icon: UserPlus, href: "/students" },
-              { label: "Create Exam", icon: ClipboardList, href: "/exams" },
-              { label: "Generate Results", icon: FileText, href: "/results" },
-              { label: "Add Questions", icon: Plus, href: "/questions" },
-            ].map((action) => (
-                <a
+            {quickActions.map((action) => (
+              <a
                 key={action.label}
                 href={action.href}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-muted/50 hover:bg-muted text-foreground text-sm font-medium transition-colors"

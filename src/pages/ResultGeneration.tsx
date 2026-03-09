@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ApiClass, ApiResult, ApiTerm, fetchClasses, fetchTerms, generateResults } from "@/lib/api";
 
 interface UiResult {
+  id: number;
   studentId: number;
   name: string;
   total: number;
@@ -57,6 +58,7 @@ export default function ResultGeneration() {
   );
 
   const mapApiResult = (item: ApiResult): UiResult => ({
+    id: item.id,
     studentId: item.student_id,
     name: item.student?.user?.name || "Unknown Student",
     total: item.total_marks,
@@ -115,8 +117,11 @@ export default function ResultGeneration() {
   };
 
   const handleViewSlip = (result: UiResult) => {
-    navigate("/result-slip", {
+    navigate(`/result-slip?classId=${selectedClassId}&studentId=${result.studentId}`, {
       state: {
+        resultId: result.id,
+        classId: Number(selectedClassId),
+        termId: Number(selectedTermId),
         studentName: result.name,
         studentId: result.studentId,
         total: result.total,
